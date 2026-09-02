@@ -1,433 +1,514 @@
 // ============================================================
-// Tic-Tac-Toe Client Script - Clean Mockup Match Engine
+// Tic-Tac-Toe Client Script
+// Features: play-again vote flow, card-based history, trophy icon
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
 
-  // 1. Theme Engine Setup (Light vs Dark Mode)
+  // ── THEME ENGINE ─────────────────────────────────────────────────────────────
   const themeToggleBtn = document.getElementById('theme-toggle-btn');
-  const htmlElement = document.documentElement;
+  const htmlEl = document.documentElement;
 
   const savedTheme = localStorage.getItem('ttt_theme') || 'light';
-  htmlElement.setAttribute('data-theme', savedTheme);
+  htmlEl.setAttribute('data-theme', savedTheme);
 
-  if (themeToggleBtn) {
-    themeToggleBtn.addEventListener('click', () => {
-      const currentTheme = htmlElement.getAttribute('data-theme');
-      const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
-      htmlElement.setAttribute('data-theme', nextTheme);
-      localStorage.setItem('ttt_theme', nextTheme);
-      showToast(`Switched to ${nextTheme === 'light' ? 'Light ☀️' : 'Dark 🌙'} Mode`, 'info');
-      
-      if (lastWinningCombo) drawWinningLine(lastWinningCombo, lastWinnerSymbol);
-    });
-  }
+  themeToggleBtn && themeToggleBtn.addEventListener('click', () => {
+    const next = htmlEl.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    htmlEl.setAttribute('data-theme', next);
+    localStorage.setItem('ttt_theme', next);
+    if (lastWinningCombo) drawWinningLine(lastWinningCombo, lastWinnerSymbol);
+  });
 
-  // 2. Socket.io Client Initialization
+  // ── SOCKET.IO INIT ────────────────────────────────────────────────────────────
   const SERVER_URL = (window.location.protocol === 'file:' || !window.location.host)
     ? 'http://localhost:5000'
     : window.location.origin;
 
   let socket;
   try {
-    socket = io(SERVER_URL, {
-      transports: ['websocket', 'polling'],
-      reconnection: true
-    });
+    socket = io(SERVER_URL, { transports: ['websocket', 'polling'], reconnection: true });
   } catch (err) {
     console.error('Socket init error:', err);
   }
 
-  // Client Room & Match State
-  let currentRoomId = null;
-  let mySymbol = null;
-  let myUsername = null;
-  let currentTurn = 'X';
-  let isGameActive = false;
-  let playerXName = null;
-  let playerOName = null;
-  let scoreX = 0;
-  let scoreO = 0;
-  let lastWinningCombo = null;
-  let lastWinnerSymbol = null;
+  // ── CLIENT STATE ──────────────────────────────────────────────────────────────
+  let currentRoomId   = null;
+  let mySymbol        = null;
+  let myUsername      = null;
+  let currentTurn     = 'X';
+  let isGameActive    = false;
+  let playerXName     = null;
+  let playerOName     = null;
+  let scoreX          = 0;
+  let scoreO          = 0;
+  let lastWinningCombo   = null;
+  let lastWinnerSymbol   = null;
+  let iAmRequesterOfNewGame = false; // did I click "PLAY AGAIN"?
 
-  // DOM Elements - Header & Connection
-  const connectionPill = document.getElementById('connection-pill');
-  const connectionText = document.getElementById('connection-text');
-  const roomCodeBadge = document.getElementById('room-code-badge');
-  const displayRoomId = document.getElementById('display-room-id');
-  const copyRoomBtn = document.getElementById('copy-room-btn');
-  const leaveRoomBtnNav = document.getElementById('leave-room-btn-nav');
+  // ── DOM REFS ──────────────────────────────────────────────────────────────────
+  const connectionPill     = document.getElementById('connection-pill');
+  const connectionText     = document.getElementById('connection-text');
+  const roomCodeBadge      = document.getElementById('room-code-badge');
+  const displayRoomId      = document.getElementById('display-room-id');
+  const copyRoomBtn        = document.getElementById('copy-room-btn');
+  const leaveRoomBtnNav    = document.getElementById('leave-room-btn-nav');
 
-  // DOM Elements - Modals & Tabs
-  const lobbyModal = document.getElementById('lobby-modal');
-  const waitingModal = document.getElementById('waiting-modal');
-  const shareRoomCode = document.getElementById('share-room-code');
-  const shareCopyBtn = document.getElementById('share-copy-btn');
+  const lobbyModal         = document.getElementById('lobby-modal');
+  const waitingModal       = document.getElementById('waiting-modal');
+  const shareRoomCode      = document.getElementById('share-room-code');
+  const shareCopyBtn       = document.getElementById('share-copy-btn');
 
-  const tabBtnCreate = document.getElementById('tab-btn-create');
-  const tabBtnJoin = document.getElementById('tab-btn-join');
-  const createRoomForm = document.getElementById('create-room-form');
-  const joinRoomForm = document.getElementById('join-room-form');
-
+  const tabBtnCreate       = document.getElementById('tab-btn-create');
+  const tabBtnJoin         = document.getElementById('tab-btn-join');
+  const createRoomForm     = document.getElementById('create-room-form');
+  const joinRoomForm       = document.getElementById('join-room-form');
   const createUsernameInput = document.getElementById('create-username-input');
-  const joinUsernameInput = document.getElementById('join-username-input');
-  const joinRoomidInput = document.getElementById('join-roomid-input');
+  const joinUsernameInput  = document.getElementById('join-username-input');
+  const joinRoomidInput    = document.getElementById('join-roomid-input');
 
-  // DOM Elements - Turn Pill & Status
-  const turnPill = document.getElementById('turn-pill');
-  const turnPillText = document.getElementById('turn-pill-text');
-  const footerMoveText = document.getElementById('footer-move-text');
+  const turnPill           = document.getElementById('turn-pill');
+  const turnPillText       = document.getElementById('turn-pill-text');
+  const footerMoveText     = document.getElementById('footer-move-text');
 
-  // DOM Elements - Scoreboard & Cards
-  const cardPlayerX = document.getElementById('card-player-x');
-  const cardPlayerO = document.getElementById('card-player-o');
-  const namePlayerX = document.getElementById('name-player-x');
-  const namePlayerO = document.getElementById('name-player-o');
-  const scorePlayerX = document.getElementById('score-player-x');
-  const scorePlayerO = document.getElementById('score-player-o');
+  const cardPlayerX        = document.getElementById('card-player-x');
+  const cardPlayerO        = document.getElementById('card-player-o');
+  const namePlayerX        = document.getElementById('name-player-x');
+  const namePlayerO        = document.getElementById('name-player-o');
+  const scorePlayerX       = document.getElementById('score-player-x');
+  const scorePlayerO       = document.getElementById('score-player-o');
 
-  // DOM Elements - Board Grid & Canvas Line
-  const boardElement = document.getElementById('board');
-  const cells = document.querySelectorAll('.cell');
-  const canvas = document.getElementById('winning-line-canvas');
+  const boardElement       = document.getElementById('board');
+  const cells              = document.querySelectorAll('.cell');
+  const canvas             = document.getElementById('winning-line-canvas');
 
-  // DOM Elements - Actions & History
-  const resetBtn = document.getElementById('reset-btn');
-  const resetScoreBtn = document.getElementById('reset-score-btn');
-  const viewHistoryBtn = document.getElementById('view-history-btn');
-  const historyModal = document.getElementById('history-modal');
-  const closeHistoryBtn = document.getElementById('close-history-btn');
-  const historyTableBody = document.getElementById('history-table-body');
+  const resetBtn           = document.getElementById('reset-btn');
+  const resetScoreBtn      = document.getElementById('reset-score-btn');
+  const viewHistoryBtn     = document.getElementById('view-history-btn');
+  const historyModal       = document.getElementById('history-modal');
+  const closeHistoryBtn    = document.getElementById('close-history-btn');
+  const historyBody        = document.getElementById('history-body');
 
-  const winnerModal = document.getElementById('winner-modal');
-  const winnerBannerPill = document.getElementById('winner-banner-pill');
-  const winnerTitle = document.getElementById('winner-title');
-  const winnerSubtitle = document.getElementById('winner-subtitle');
-  const summaryMoves = document.getElementById('summary-moves');
-  const summarySymbol = document.getElementById('summary-symbol');
-  const playAgainBtn = document.getElementById('play-again-btn');
-  const toastContainer = document.getElementById('toast-container');
+  // Winner modal
+  const winnerModal        = document.getElementById('winner-modal');
+  const winnerIconWrap     = document.getElementById('winner-icon-wrap');
+  const winnerBannerPill   = document.getElementById('winner-banner-pill');
+  const winnerTitle        = document.getElementById('winner-title');
+  const winnerSubtitle     = document.getElementById('winner-subtitle');
+  const summaryMoves       = document.getElementById('summary-moves');
+  const summarySymbol      = document.getElementById('summary-symbol');
+  const playAgainBtn       = document.getElementById('play-again-btn');
+  const leaveAfterGameBtn  = document.getElementById('leave-after-game-btn');
 
-  // Helper: Toast Notifications
+  // Play Again Confirm modal
+  const confirmModal       = document.getElementById('playagain-confirm-modal');
+  const confirmTitle       = document.getElementById('confirm-title');
+  const confirmMsg         = document.getElementById('confirm-msg');
+  const confirmYesBtn      = document.getElementById('confirm-yes-btn');
+  const confirmNoBtn       = document.getElementById('confirm-no-btn');
+  const confirmWaitingMsg  = document.getElementById('confirm-waiting-msg');
+
+  const toastContainer     = document.getElementById('toast-container');
+
+  // ── TOAST ─────────────────────────────────────────────────────────────────────
   function showToast(message, type = 'info') {
     if (!toastContainer) return;
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    
-    let iconClass = 'fa-circle-info';
-    if (type === 'error') iconClass = 'fa-circle-exclamation';
-    if (type === 'success') iconClass = 'fa-circle-check';
-
-    toast.innerHTML = `<i class="fa-solid ${iconClass}"></i> <span>${escapeHtml(message)}</span>`;
-    toastContainer.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    const icon = type === 'error' ? 'fa-circle-exclamation' : type === 'success' ? 'fa-circle-check' : 'fa-circle-info';
+    t.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${escapeHtml(message)}</span>`;
+    toastContainer.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
   }
 
-  // 3. Tab Switching (Create vs Join Room)
-  if (tabBtnCreate && tabBtnJoin) {
-    tabBtnCreate.addEventListener('click', () => {
-      tabBtnCreate.classList.add('active');
-      tabBtnJoin.classList.remove('active');
-      createRoomForm.classList.remove('hidden-tab-content');
-      createRoomForm.classList.add('active-tab-content');
-      joinRoomForm.classList.remove('active-tab-content');
-      joinRoomForm.classList.add('hidden-tab-content');
+  // ── TAB SWITCHING ─────────────────────────────────────────────────────────────
+  tabBtnCreate && tabBtnCreate.addEventListener('click', () => {
+    tabBtnCreate.classList.add('active');
+    tabBtnJoin.classList.remove('active');
+    createRoomForm.classList.remove('hidden-tab-content');
+    joinRoomForm.classList.add('hidden-tab-content');
+  });
+
+  tabBtnJoin && tabBtnJoin.addEventListener('click', () => {
+    tabBtnJoin.classList.add('active');
+    tabBtnCreate.classList.remove('active');
+    joinRoomForm.classList.remove('hidden-tab-content');
+    createRoomForm.classList.add('hidden-tab-content');
+  });
+
+  // ── SOCKET CONNECTION ─────────────────────────────────────────────────────────
+  if (!socket) return;
+
+  socket.on('connect', () => {
+    connectionPill && (connectionPill.className = 'status-pill connected');
+    connectionText && (connectionText.textContent = 'Connected');
+  });
+
+  socket.on('disconnect', () => {
+    connectionPill && (connectionPill.className = 'status-pill disconnected');
+    connectionText && (connectionText.textContent = 'Disconnected');
+    showToast('Disconnected from server.', 'error');
+  });
+
+  // ── LOBBY FORMS ───────────────────────────────────────────────────────────────
+  createRoomForm && createRoomForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const username = createUsernameInput.value.trim();
+    if (!username) return;
+    socket.emit('create-room', { username });
+  });
+
+  joinRoomForm && joinRoomForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const username = joinUsernameInput.value.trim();
+    const roomId   = joinRoomidInput.value.trim().toUpperCase();
+    if (!username || !roomId) return;
+    socket.emit('join-room', { username, roomId });
+  });
+
+  // ── ROOM EVENTS ───────────────────────────────────────────────────────────────
+  socket.on('room-created', (data) => {
+    currentRoomId = data.roomId;
+    mySymbol      = data.symbol;
+    myUsername    = data.username;
+
+    lobbyModal.classList.add('hidden');
+    waitingModal.classList.remove('hidden');
+    shareRoomCode.textContent   = currentRoomId;
+    displayRoomId.textContent   = currentRoomId;
+    roomCodeBadge.classList.remove('hidden');
+    leaveRoomBtnNav && leaveRoomBtnNav.classList.remove('hidden');
+
+    showToast(`Room ${currentRoomId} created! Share code with Player 2.`, 'success');
+  });
+
+  socket.on('room-joined', (data) => {
+    currentRoomId = data.roomId;
+    mySymbol      = data.symbol;
+    myUsername    = data.username;
+
+    lobbyModal.classList.add('hidden');
+    waitingModal.classList.add('hidden');
+    displayRoomId.textContent = currentRoomId;
+    roomCodeBadge.classList.remove('hidden');
+    leaveRoomBtnNav && leaveRoomBtnNav.classList.remove('hidden');
+
+    showToast(`Joined Room ${currentRoomId}!`, 'success');
+  });
+
+  socket.on('room-error', (data) => {
+    showToast(data.message || 'Room error occurred.', 'error');
+  });
+
+  socket.on('players-update', (data) => {
+    playerXName = data.playerX;
+    playerOName = data.playerO;
+    namePlayerX && (namePlayerX.textContent = playerXName || 'Waiting...');
+    namePlayerO && (namePlayerO.textContent = playerOName || 'Waiting...');
+    updateTurnUI();
+  });
+
+  socket.on('game-start', (data) => {
+    isGameActive  = true;
+    currentTurn   = data.currentTurn;
+    playerXName   = data.playerX;
+    playerOName   = data.playerO;
+
+    clearWinningLine();
+    waitingModal.classList.add('hidden');
+    lobbyModal.classList.add('hidden');
+    boardElement.classList.remove('disabled');
+
+    namePlayerX && (namePlayerX.textContent = playerXName || 'Player 1');
+    namePlayerO && (namePlayerO.textContent = playerOName || 'Player 2');
+
+    updateBoardUI(data.board);
+    updateTurnUI();
+    showToast('Game Started! Have fun.', 'info');
+  });
+
+  // ── MOVE EVENTS ───────────────────────────────────────────────────────────────
+  cells.forEach(cell => {
+    cell.addEventListener('click', () => {
+      if (!isGameActive)          { showToast('Waiting for game to start.', 'error'); return; }
+      if (currentTurn !== mySymbol) { showToast(`It's ${currentTurn}'s turn right now!`, 'error'); return; }
+
+      const index = parseInt(cell.getAttribute('data-index'));
+      if (cell.classList.contains('x') || cell.classList.contains('o')) {
+        showToast('Cell already taken!', 'error');
+        return;
+      }
+      socket.emit('make-move', { index, symbol: mySymbol, roomId: currentRoomId });
     });
+  });
 
-    tabBtnJoin.addEventListener('click', () => {
-      tabBtnJoin.classList.add('active');
-      tabBtnCreate.classList.remove('active');
-      joinRoomForm.classList.remove('hidden-tab-content');
-      joinRoomForm.classList.add('active-tab-content');
-      createRoomForm.classList.remove('active-tab-content');
-      createRoomForm.classList.add('hidden-tab-content');
-    });
-  }
+  socket.on('move-made', (data) => {
+    updateBoardUI(data.board);
+    if (data.nextTurn) {
+      currentTurn = data.nextTurn;
+      updateTurnUI();
+    }
+  });
 
-  // 4. Socket Connection Handlers
-  if (socket) {
-    socket.on('connect', () => {
-      console.log('✅ Socket connected live [ID:', socket.id, ']');
-      if (connectionPill) connectionPill.className = 'status-pill connected';
-      if (connectionText) connectionText.textContent = 'Connected';
-    });
+  socket.on('move-error', (data) => showToast(data.message || 'Invalid move.', 'error'));
 
-    socket.on('disconnect', () => {
-      console.warn('❌ Socket disconnected');
-      if (connectionPill) connectionPill.className = 'status-pill disconnected';
-      if (connectionText) connectionText.textContent = 'Disconnected';
-      showToast('Disconnected from server.', 'error');
-    });
+  // ── GAME OVER — shown on BOTH screens via io.to(roomId).emit ─────────────────
+  socket.on('game-over', (data) => {
+    isGameActive = false;
+    boardElement.classList.add('disabled');
+    lastWinningCombo  = data.combo;
+    lastWinnerSymbol  = data.winningSymbol;
 
-    // Create Room Submit
-    if (createRoomForm) {
-      createRoomForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const username = createUsernameInput.value.trim();
-        if (!username) return;
-
-        socket.emit('create-room', { username });
+    // Draw winning line on board
+    if (data.combo) {
+      data.combo.forEach(idx => {
+        const c = document.querySelector(`.cell[data-index="${idx}"]`);
+        if (c) c.classList.add('winning-cell');
       });
+      drawWinningLine(data.combo, data.winningSymbol);
     }
 
-    // Join Room Submit
-    if (joinRoomForm) {
-      joinRoomForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const username = joinUsernameInput.value.trim();
-        const roomId = joinRoomidInput.value.trim().toUpperCase();
+    const isDraw = data.winningSymbol === 'Draw';
 
-        if (!username || !roomId) return;
-
-        socket.emit('join-room', { username, roomId });
-      });
-    }
-
-    // Socket Handler: room-created
-    socket.on('room-created', (data) => {
-      currentRoomId = data.roomId;
-      mySymbol = data.symbol;
-      myUsername = data.username;
-
-      lobbyModal.classList.add('hidden');
-      waitingModal.classList.remove('hidden');
-
-      shareRoomCode.textContent = currentRoomId;
-      displayRoomId.textContent = currentRoomId;
-      roomCodeBadge.classList.remove('hidden');
-      if (leaveRoomBtnNav) leaveRoomBtnNav.classList.remove('hidden');
-
-      showToast(`Room ${currentRoomId} created! Share code with Player 2.`, 'success');
-    });
-
-    // Socket Handler: room-joined
-    socket.on('room-joined', (data) => {
-      currentRoomId = data.roomId;
-      mySymbol = data.symbol;
-      myUsername = data.username;
-
-      lobbyModal.classList.add('hidden');
-      waitingModal.classList.add('hidden');
-
-      displayRoomId.textContent = currentRoomId;
-      roomCodeBadge.classList.remove('hidden');
-      if (leaveRoomBtnNav) leaveRoomBtnNav.classList.remove('hidden');
-
-      showToast(`Joined Room ${currentRoomId}!`, 'success');
-    });
-
-    // Socket Handler: room-error
-    socket.on('room-error', (data) => {
-      showToast(data.message || 'Room error occurred.', 'error');
-    });
-
-    // Socket Handler: players-update
-    socket.on('players-update', (data) => {
-      playerXName = data.playerX;
-      playerOName = data.playerO;
-
-      if (namePlayerX) namePlayerX.textContent = playerXName || 'Waiting...';
-      if (namePlayerO) namePlayerO.textContent = playerOName || 'Waiting...';
-
-      updateTurnCardHighlight();
-    });
-
-    // Socket Handler: game-start
-    socket.on('game-start', (data) => {
-      isGameActive = true;
-      currentTurn = data.currentTurn;
-      clearWinningLine();
-
-      waitingModal.classList.add('hidden');
-      lobbyModal.classList.add('hidden');
-      boardElement.classList.remove('disabled');
-
-      updateBoardUI(data.board);
-      updateTurnCardHighlight();
-
-      showToast('Game Started! Have fun.', 'info');
-    });
-
-    // Cell Clicks
-    cells.forEach(cell => {
-      cell.addEventListener('click', () => {
-        if (!isGameActive) {
-          showToast('Waiting for game to start.', 'error');
-          return;
-        }
-
-        if (currentTurn !== mySymbol) {
-          showToast(`It is currently Player ${currentTurn}'s turn.`, 'error');
-          return;
-        }
-
-        const index = parseInt(cell.getAttribute('data-index'));
-        if (cell.classList.contains('x') || cell.classList.contains('o')) {
-          showToast('Cell is already occupied!', 'error');
-          return;
-        }
-
-        socket.emit('make-move', { index, symbol: mySymbol, roomId: currentRoomId });
-      });
-    });
-
-    // Socket Handler: move-made
-    socket.on('move-made', (data) => {
-      updateBoardUI(data.board);
-
-      if (data.nextTurn) {
-        currentTurn = data.nextTurn;
-        updateTurnCardHighlight();
-      }
-    });
-
-    // Socket Handler: move-error
-    socket.on('move-error', (data) => {
-      showToast(data.message || 'Invalid move.', 'error');
-    });
-
-    // Socket Handler: game-over
-    socket.on('game-over', (data) => {
-      isGameActive = false;
-      boardElement.classList.add('disabled');
-
-      lastWinningCombo = data.combo;
-      lastWinnerSymbol = data.winningSymbol;
-
-      if (data.combo) {
-        data.combo.forEach(idx => {
-          const cell = document.querySelector(`.cell[data-index="${idx}"]`);
-          if (cell) cell.classList.add('winning-cell');
-        });
-        drawWinningLine(data.combo, data.winningSymbol);
-      }
-
-      if (data.winningSymbol === 'Draw') {
-        winnerBannerPill.textContent = "IT'S A DRAW!";
-        winnerTitle.textContent = "It's a Draw!";
-        winnerSubtitle.textContent = 'Great match by both players!';
-        summarySymbol.textContent = 'Draw';
-        summarySymbol.className = 'value text-purple';
-        if (turnPillText) turnPillText.textContent = "✦ IT'S A DRAW! ✦";
-        if (footerMoveText) footerMoveText.textContent = "✦ Match Draw! ✦";
+    // Update winner icon
+    if (winnerIconWrap) {
+      winnerIconWrap.className = 'winner-icon-wrap';
+      const icon = winnerIconWrap.querySelector('i');
+      if (isDraw) {
+        winnerIconWrap.classList.add('draw');
+        if (icon) { icon.className = 'fa-solid fa-handshake winner-trophy-icon'; }
+      } else if (data.winningSymbol === 'X') {
+        winnerIconWrap.classList.add('winner-x');
+        if (icon) { icon.className = 'fa-solid fa-trophy winner-trophy-icon'; }
       } else {
-        const isMe = data.winner === myUsername;
-        winnerBannerPill.textContent = `🎉 ${data.winner.toUpperCase()} WINS!`;
-        winnerTitle.textContent = `🎉 ${data.winner} Wins!`;
-        winnerSubtitle.textContent = isMe ? 'Awesome victory!' : 'Better luck next match!';
-        summarySymbol.textContent = data.winningSymbol;
-        summarySymbol.className = data.winningSymbol === 'X' ? 'value text-x' : 'value text-o';
-
-        if (turnPillText) turnPillText.textContent = `🎉 ${data.winner.toUpperCase()} WINS! 🎉`;
-        if (footerMoveText) footerMoveText.textContent = `✦ ${data.winner} won the game! ✦`;
-
-        if (data.winningSymbol === 'X') {
-          scoreX += 1;
-          if (scorePlayerX) scorePlayerX.textContent = scoreX;
-        } else if (data.winningSymbol === 'O') {
-          scoreO += 1;
-          if (scorePlayerO) scorePlayerO.textContent = scoreO;
-        }
-
-        if (typeof confetti === 'function') {
-          confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-        }
+        winnerIconWrap.classList.add('winner-o');
+        if (icon) { icon.className = 'fa-solid fa-trophy winner-trophy-icon'; }
       }
-
-      summaryMoves.textContent = data.totalMoves;
-      winnerModal.classList.remove('hidden');
-
-      if (data.history) {
-        renderHistoryTable(data.history);
-      }
-    });
-
-    // Socket Handler: game-reset
-    socket.on('game-reset', (data) => {
-      updateBoardUI(data.board);
-      clearWinningLine();
-      winnerModal.classList.add('hidden');
-      isGameActive = true;
-      showToast('New game started!', 'info');
-    });
-
-    // Socket Handler: player-disconnected
-    socket.on('player-disconnected', (data) => {
-      showToast(data.message, 'error');
-      isGameActive = false;
-      boardElement.classList.add('disabled');
-      if (turnPillText) turnPillText.textContent = `${data.username} left the game.`;
-    });
-
-    // Action Buttons
-    if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
-        socket.emit('reset-game', { roomId: currentRoomId });
-      });
     }
 
-    if (playAgainBtn) {
-      playAgainBtn.addEventListener('click', () => {
-        socket.emit('reset-game', { roomId: currentRoomId });
-      });
+    if (isDraw) {
+      winnerBannerPill.textContent = "IT'S A DRAW!";
+      winnerBannerPill.className   = 'winner-banner-pill draw-pill';
+      winnerTitle.textContent      = "What a Match!";
+      winnerSubtitle.textContent   = "Both players played brilliantly!";
+      summarySymbol.textContent    = '—';
+      summarySymbol.className      = 'value text-purple';
+      turnPillText && (turnPillText.textContent = "✦ IT'S A DRAW! ✦");
+    } else {
+      const isMe = data.winner === myUsername;
+      winnerBannerPill.textContent = `${data.winner.toUpperCase()} WINS!`;
+      winnerBannerPill.className   = data.winningSymbol === 'X' ? 'winner-banner-pill' : 'winner-banner-pill';
+      winnerBannerPill.style.color = data.winningSymbol === 'X' ? 'var(--color-x)' : 'var(--color-o)';
+      winnerTitle.textContent      = isMe ? "You Won!" : `${data.winner} Won!`;
+      winnerSubtitle.textContent   = isMe ? "Amazing game! You crushed it!" : "Better luck next time!";
+      summarySymbol.textContent    = data.winningSymbol;
+      summarySymbol.className      = data.winningSymbol === 'X' ? 'value text-x' : 'value text-o';
+      turnPillText && (turnPillText.textContent = `${data.winner.toUpperCase()} WINS!`);
+
+      if (data.winningSymbol === 'X') { scoreX++; scorePlayerX && (scorePlayerX.textContent = scoreX); }
+      else                            { scoreO++; scorePlayerO && (scorePlayerO.textContent = scoreO); }
+
+      typeof confetti === 'function' && confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
     }
 
-    if (resetScoreBtn) {
-      resetScoreBtn.addEventListener('click', () => {
-        scoreX = 0;
-        scoreO = 0;
-        if (scorePlayerX) scorePlayerX.textContent = 0;
-        if (scorePlayerO) scorePlayerO.textContent = 0;
-        showToast('Scores reset to 0!', 'info');
-      });
-    }
+    summaryMoves.textContent = data.totalMoves;
+    winnerModal.classList.remove('hidden');
 
-    if (leaveRoomBtnNav) {
-      leaveRoomBtnNav.addEventListener('click', () => {
-        if (confirm('Leave current room?')) {
-          window.location.reload();
-        }
-      });
+    if (data.history && data.history.length > 0) {
+      renderHistoryCards(data.history);
     }
+  });
+
+  // ── PLAY AGAIN — voter flow ───────────────────────────────────────────────────
+  // Step 1: Click "PLAY AGAIN" on winner modal
+  playAgainBtn && playAgainBtn.addEventListener('click', () => {
+    winnerModal.classList.add('hidden');
+    iAmRequesterOfNewGame = true;
+
+    // Emit request to server — server will broadcast new-game-request to room
+    socket.emit('request-new-game', { roomId: currentRoomId });
+
+    // Show confirm modal in "waiting" state for the requester
+    confirmTitle.textContent = 'Play Again?';
+    confirmMsg.textContent   = 'Waiting for your opponent to respond...';
+    confirmWaitingMsg.classList.remove('hidden');
+    confirmYesBtn.disabled   = true;
+    confirmYesBtn.style.opacity = '0.5';
+    confirmModal.classList.remove('hidden');
+  });
+
+  // Step 2 (other player): Server broadcasts new-game-request
+  socket.on('new-game-request', (data) => {
+    // If I was the one who clicked play again, I've already voted YES server-side
+    if (iAmRequesterOfNewGame) return;
+
+    winnerModal.classList.add('hidden');
+    confirmTitle.textContent = 'Play Again?';
+    confirmMsg.textContent   = `${escapeHtml(data.requester)} wants to play again! What do you say?`;
+    confirmWaitingMsg.classList.add('hidden');
+    confirmYesBtn.disabled   = false;
+    confirmYesBtn.style.opacity = '1';
+    confirmModal.classList.remove('hidden');
+  });
+
+  // Step 3: Other player answers YES or NO
+  confirmYesBtn && confirmYesBtn.addEventListener('click', () => {
+    confirmYesBtn.disabled = true;
+    confirmWaitingMsg.classList.remove('hidden');
+    confirmMsg.textContent = 'Great! Waiting for confirmation...';
+    socket.emit('new-game-response', { roomId: currentRoomId, accepted: true });
+  });
+
+  confirmNoBtn && confirmNoBtn.addEventListener('click', () => {
+    socket.emit('new-game-response', { roomId: currentRoomId, accepted: false });
+    confirmModal.classList.add('hidden');
+  });
+
+  // Step 4a: Both said YES → game-reset + game-start fires
+  socket.on('game-reset', (data) => {
+    updateBoardUI(data.board);
+    clearWinningLine();
+    confirmModal.classList.add('hidden');
+    winnerModal.classList.add('hidden');
+    iAmRequesterOfNewGame = false;
+    // game-start event will re-enable the board
+  });
+
+  // Step 4b: Someone said NO
+  socket.on('new-game-declined', (data) => {
+    confirmModal.classList.add('hidden');
+    iAmRequesterOfNewGame = false;
+    showToast(data.message || 'The other player chose not to continue.', 'error');
+    boardElement.classList.add('disabled');
+    turnPillText && (turnPillText.textContent = '✦ Game Ended ✦');
+  });
+
+  // ── LEAVE ROOM ────────────────────────────────────────────────────────────────
+  leaveRoomBtnNav && leaveRoomBtnNav.addEventListener('click', () => {
+    if (confirm('Leave current room and return to lobby?')) window.location.reload();
+  });
+
+  leaveAfterGameBtn && leaveAfterGameBtn.addEventListener('click', () => {
+    window.location.reload();
+  });
+
+  // Reset button on arena (before game over — just request)
+  resetBtn && resetBtn.addEventListener('click', () => {
+    if (!isGameActive) {
+      // Game already over — trigger play again flow
+      if (winnerModal) winnerModal.classList.remove('hidden');
+      return;
+    }
+    showToast('You can only start a new game after the current one ends.', 'error');
+  });
+
+  resetScoreBtn && resetScoreBtn.addEventListener('click', () => {
+    scoreX = 0; scoreO = 0;
+    scorePlayerX && (scorePlayerX.textContent = 0);
+    scorePlayerO && (scorePlayerO.textContent = 0);
+    showToast('Scores reset!', 'info');
+  });
+
+  socket.on('player-disconnected', (data) => {
+    showToast(data.message, 'error');
+    isGameActive = false;
+    boardElement.classList.add('disabled');
+    turnPillText && (turnPillText.textContent = `${escapeHtml(data.username)} left.`);
+    confirmModal.classList.add('hidden');
+    iAmRequesterOfNewGame = false;
+  });
+
+  // ── HISTORY ───────────────────────────────────────────────────────────────────
+  viewHistoryBtn && viewHistoryBtn.addEventListener('click', () => {
+    historyModal.classList.remove('hidden');
+    loadHistory();
+  });
+
+  closeHistoryBtn && closeHistoryBtn.addEventListener('click', () => {
+    historyModal.classList.add('hidden');
+  });
+
+  function loadHistory() {
+    historyBody && (historyBody.innerHTML = `<div class="history-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading records...</div>`);
+    
+    // Request via socket (fastest, no CORS issues)
+    socket.emit('get-history', { roomId: currentRoomId });
+
+    // Also try REST as backup
+    fetch('/api/history')
+      .then(r => r.json())
+      .then(d => { if (d.success && d.history && d.history.length > 0) renderHistoryCards(d.history); })
+      .catch(() => {});
   }
 
-  // 5. Winning Strike Line Canvas Renderer
+  socket.on('history-data', (data) => {
+    if (data && Array.isArray(data.history)) {
+      renderHistoryCards(data.history);
+    }
+  });
+
+  function renderHistoryCards(records) {
+    if (!historyBody) return;
+    if (!records || records.length === 0) {
+      historyBody.innerHTML = `<div class="history-empty"><i class="fa-solid fa-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>No matches recorded yet for this room.</div>`;
+      return;
+    }
+
+    historyBody.innerHTML = records.map((rec, i) => {
+      const dateStr = rec.playedAt ? new Date(rec.playedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
+      const isX     = rec.winningSymbol === 'X';
+      const isDraw  = rec.winningSymbol === 'Draw';
+      const badgeCls = isDraw ? 'badge-draw' : isX ? 'badge-x' : 'badge-o';
+      const winLabel = isDraw ? 'Draw' : rec.winner;
+
+      return `
+        <div class="history-record-card">
+          <div class="history-record-num">#${i + 1}</div>
+          <div class="history-record-info">
+            <div class="history-record-room">${escapeHtml(rec.roomId || 'ROOM')}</div>
+            <div class="history-record-players">
+              <span class="text-x">X: ${escapeHtml(rec.playerX)}</span>
+              &nbsp;&bull;&nbsp;
+              <span class="text-o">O: ${escapeHtml(rec.playerO)}</span>
+            </div>
+            <div class="history-record-meta">${rec.totalMoves} moves &bull; ${dateStr}</div>
+          </div>
+          <div class="history-record-winner">
+            <span class="history-winner-badge ${badgeCls}">${escapeHtml(winLabel)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── WINNING LINE CANVAS ───────────────────────────────────────────────────────
   function drawWinningLine(combo, symbol) {
     if (!canvas || !combo || combo.length !== 3) return;
-    const ctx = canvas.getContext('2d');
-    const boardRect = boardElement.getBoundingClientRect();
-    
-    canvas.width = boardRect.width;
-    canvas.height = boardRect.height;
+    const ctx  = canvas.getContext('2d');
+    const rect = boardElement.getBoundingClientRect();
+    canvas.width  = rect.width;
+    canvas.height = rect.height;
 
-    const cellA = cells[combo[0]].getBoundingClientRect();
-    const cellC = cells[combo[2]].getBoundingClientRect();
+    const a = cells[combo[0]].getBoundingClientRect();
+    const c = cells[combo[2]].getBoundingClientRect();
+    const x1 = a.left - rect.left + a.width  / 2;
+    const y1 = a.top  - rect.top  + a.height / 2;
+    const x2 = c.left - rect.left + c.width  / 2;
+    const y2 = c.top  - rect.top  + c.height / 2;
 
-    const startX = cellA.left - boardRect.left + cellA.width / 2;
-    const startY = cellA.top - boardRect.top + cellA.height / 2;
-    const endX = cellC.left - boardRect.left + cellC.width / 2;
-    const endY = cellC.top - boardRect.top + cellC.height / 2;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.lineWidth = 8;
-    ctx.lineCap = 'round';
-
-    const isLight = htmlElement.getAttribute('data-theme') === 'light';
-    const strokeColor = symbol === 'X'
+    const isLight = htmlEl.getAttribute('data-theme') === 'light';
+    const color   = symbol === 'X'
       ? (isLight ? '#FF6FA8' : '#FF72A6')
       : (isLight ? '#4D9CFF' : '#5AD1FF');
 
-    ctx.strokeStyle = strokeColor;
-    ctx.shadowColor = strokeColor;
-    ctx.shadowBlur = 12;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineWidth   = 8;
+    ctx.lineCap     = 'round';
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 12;
     ctx.stroke();
   }
 
@@ -438,132 +519,71 @@ document.addEventListener('DOMContentLoaded', () => {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
+    cells.forEach(c => c.classList.remove('winning-cell'));
   }
 
-  // 6. Copy Room Code Clipboard Helper
+  // ── CLIPBOARD ─────────────────────────────────────────────────────────────────
   function copyToClipboard(text) {
     if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      showToast(`Copied Room Code "${text}"!`, 'success');
-    }).catch(err => {
-      console.error('Copy failed:', err);
-      showToast(`Room Code: ${text}`, 'info');
-    });
+    navigator.clipboard.writeText(text)
+      .then(() => showToast(`Copied: "${text}"`, 'success'))
+      .catch(() => showToast(`Room Code: ${text}`, 'info'));
   }
 
-  if (copyRoomBtn) copyRoomBtn.addEventListener('click', () => copyToClipboard(currentRoomId));
-  if (shareCopyBtn) shareCopyBtn.addEventListener('click', () => copyToClipboard(currentRoomId));
+  copyRoomBtn  && copyRoomBtn.addEventListener('click',  () => copyToClipboard(currentRoomId));
+  shareCopyBtn && shareCopyBtn.addEventListener('click', () => copyToClipboard(currentRoomId));
 
-  // 7. Board UI Helper & Turn Pill Updating
+  // ── BOARD & TURN UI ───────────────────────────────────────────────────────────
   function updateBoardUI(boardArray) {
     if (!boardArray) return;
-    cells.forEach((cell, index) => {
-      const val = boardArray[index];
+    cells.forEach((cell, i) => {
+      const val = boardArray[i];
       cell.classList.remove('x', 'o', 'winning-cell');
       cell.textContent = '';
-
-      if (val === 'X') {
-        cell.classList.add('x');
-        cell.textContent = 'X';
-      } else if (val === 'O') {
-        cell.classList.add('o');
-        cell.textContent = 'O';
-      }
+      if (val === 'X') { cell.classList.add('x'); cell.textContent = 'X'; }
+      else if (val === 'O') { cell.classList.add('o'); cell.textContent = 'O'; }
     });
   }
 
-  function updateTurnCardHighlight() {
-    if (cardPlayerX) cardPlayerX.classList.remove('active');
-    if (cardPlayerO) cardPlayerO.classList.remove('active');
+  function updateTurnUI() {
+    cardPlayerX && cardPlayerX.classList.remove('active');
+    cardPlayerO && cardPlayerO.classList.remove('active');
 
-    if (isGameActive) {
-      if (currentTurn === 'X') {
-        if (cardPlayerX) cardPlayerX.classList.add('active');
-        if (turnPill) turnPill.className = 'turn-pill';
-        if (turnPillText) {
-          turnPillText.textContent = (mySymbol === 'X') ? "✦ YOUR TURN (X) ✦" : `✦ ${playerXName || 'PLAYER 1'}'S TURN (X) ✦`;
-        }
-        if (footerMoveText) {
-          footerMoveText.textContent = (mySymbol === 'X') ? "✦ Make your move! ✦" : `✦ Waiting for ${playerXName || 'Player 1'}... ✦`;
-        }
-      } else {
-        if (cardPlayerO) cardPlayerO.classList.add('active');
-        if (turnPill) turnPill.className = 'turn-pill turn-o';
-        if (turnPillText) {
-          turnPillText.textContent = (mySymbol === 'O') ? "✦ YOUR TURN (O) ✦" : `✦ ${playerOName || 'PLAYER 2'}'S TURN (O) ✦`;
-        }
-        if (footerMoveText) {
-          footerMoveText.textContent = (mySymbol === 'O') ? "✦ Make your move! ✦" : `✦ Waiting for ${playerOName || 'Player 2'}... ✦`;
-        }
+    if (!isGameActive) return;
+
+    if (currentTurn === 'X') {
+      cardPlayerX && cardPlayerX.classList.add('active');
+      turnPill && (turnPill.className = 'turn-pill');
+      if (turnPillText) {
+        turnPillText.textContent = mySymbol === 'X'
+          ? '✦ YOUR TURN (X) ✦'
+          : `✦ ${playerXName || 'Player 1'}'S TURN (X) ✦`;
+      }
+      if (footerMoveText) {
+        footerMoveText.textContent = mySymbol === 'X'
+          ? '✦ Make your move! ✦'
+          : `✦ Waiting for ${playerXName || 'Player 1'}... ✦`;
+      }
+    } else {
+      cardPlayerO && cardPlayerO.classList.add('active');
+      turnPill && (turnPill.className = 'turn-pill turn-o');
+      if (turnPillText) {
+        turnPillText.textContent = mySymbol === 'O'
+          ? '✦ YOUR TURN (O) ✦'
+          : `✦ ${playerOName || 'Player 2'}'S TURN (O) ✦`;
+      }
+      if (footerMoveText) {
+        footerMoveText.textContent = mySymbol === 'O'
+          ? '✦ Make your move! ✦'
+          : `✦ Waiting for ${playerOName || 'Player 2'}... ✦`;
       }
     }
   }
 
-  // 8. History Drawer Fetching
-  if (viewHistoryBtn) {
-    viewHistoryBtn.addEventListener('click', () => {
-      if (historyModal) historyModal.classList.remove('hidden');
-      fetchGameHistory();
-    });
-  }
-
-  if (closeHistoryBtn) {
-    closeHistoryBtn.addEventListener('click', () => {
-      if (historyModal) historyModal.classList.add('hidden');
-    });
-  }
-
-  function fetchGameHistory() {
-    if (socket && currentRoomId) {
-      socket.emit('get-history', { roomId: currentRoomId });
-    }
-    fetch('/api/history')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.history) {
-          renderHistoryTable(data.history);
-        }
-      })
-      .catch(err => console.warn('REST History fetch notice:', err.message));
-  }
-
-  if (socket) {
-    socket.on('history-data', (data) => {
-      if (data && data.history) {
-        renderHistoryTable(data.history);
-      }
-    });
-  }
-
-  function renderHistoryTable(records) {
-    if (!historyTableBody) return;
-    if (!records || records.length === 0) {
-      historyTableBody.innerHTML = `<tr><td colspan="7" class="text-center">No match records stored yet.</td></tr>`;
-      return;
-    }
-
-    historyTableBody.innerHTML = records.map((rec, i) => {
-      const dateStr = rec.playedAt ? new Date(rec.playedAt).toLocaleString() : 'N/A';
-      const winnerBadgeClass = rec.winningSymbol === 'X' ? 'text-x' : rec.winningSymbol === 'O' ? 'text-o' : 'text-purple';
-      
-      return `
-        <tr>
-          <td>${i + 1}</td>
-          <td><strong style="color: var(--primary-purple);">${escapeHtml(rec.roomId || 'ROOM')}</strong></td>
-          <td><strong>${escapeHtml(rec.playerX)}</strong> (X)</td>
-          <td><strong>${escapeHtml(rec.playerO)}</strong> (O)</td>
-          <td><span class="${winnerBadgeClass}"><strong>${escapeHtml(rec.winner)}</strong></span></td>
-          <td>${rec.totalMoves}</td>
-          <td style="font-size: 0.8rem; color: var(--text-muted);">${dateStr}</td>
-        </tr>
-      `;
-    }).join('');
-  }
-
+  // ── UTILS ─────────────────────────────────────────────────────────────────────
   function escapeHtml(str) {
-    return String(str || '').replace(/[&<>"']/g, match => {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match];
-    });
+    return String(str || '').replace(/[&<>"']/g, m => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]
+    ));
   }
-
 });

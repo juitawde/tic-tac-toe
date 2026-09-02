@@ -4,13 +4,24 @@ const { validateUsernameString } = require('../middlewares/validationMiddleware'
 
 /**
  * Socket.io Event Manager (Multi-Room Architecture)
+ * 
+ * New Game flow:
+ *  1. Player clicks "NEW GAME" → emits `request-new-game`
+ *  2. Server broadcasts `new-game-request` to the room (with requester name)
+ *  3. Both players see a dialog asking "Play again? YES / NO"
+ *  4. Each player emits `new-game-response { accepted: true/false }`
+ *  5. Server tracks votes. If both accept → emit `game-reset` + `game-start`
+ *     If anyone rejects → emit `new-game-declined` (which can optionally send players back to lobby)
  */
 
 function setupSocketIO(io) {
+  // Pending new-game votes: roomId -> { votes: Map<socketId, bool>, requester: username }
+  const pendingNewGameVotes = new Map();
+
   io.on('connection', (socket) => {
     console.log(`🔌 Client connected [ID: ${socket.id}]`);
 
-    // Event: create-room
+    // ── CREATE ROOM ────────────────────────────────────────────────────────────
     socket.on('create-room', (data) => {
       const usernameInput = data && data.username ? data.username : '';
       const validation = validateUsernameString(usernameInput);
@@ -32,7 +43,7 @@ function setupSocketIO(io) {
       io.to(res.roomId).emit('players-update', gameState.getPlayersSummary(res.roomId));
     });
 
-    // Event: join-room
+    // ── JOIN ROOM ──────────────────────────────────────────────────────────────
     socket.on('join-room', (data) => {
       const usernameInput = data && data.username ? data.username : '';
       const roomIdInput = data && data.roomId ? data.roomId : '';
@@ -76,7 +87,7 @@ function setupSocketIO(io) {
       }
     });
 
-    // Event: make-move
+    // ── MAKE MOVE ─────────────────────────────────────────────────────────────
     socket.on('make-move', (data) => {
       const { index, symbol, roomId } = data || {};
       const moveResult = gameState.processMove(socket.id, roomId, index, symbol);
@@ -90,6 +101,7 @@ function setupSocketIO(io) {
       const pO = room && room.players.O ? room.players.O.username : 'Player O';
 
       if (moveResult.gameOver) {
+        // First broadcast board update so everyone sees the final move
         io.to(roomId).emit('move-made', {
           index,
           symbol,
@@ -97,6 +109,7 @@ function setupSocketIO(io) {
           nextTurn: null
         });
 
+        // Save and broadcast game-over to BOTH players
         saveMatchRecord(
           roomId,
           pX,
@@ -104,18 +117,31 @@ function setupSocketIO(io) {
           moveResult.winner,
           moveResult.winningSymbol,
           moveResult.totalMoves
-        ).then(async () => {
-          const updatedHistory = await fetchHistoryRecords(roomId);
+        )
+          .then(async () => {
+            const updatedHistory = await fetchHistoryRecords(roomId);
 
-          io.to(roomId).emit('game-over', {
-            winner: moveResult.winner,
-            winningSymbol: moveResult.winningSymbol,
-            combo: moveResult.combo,
-            board: moveResult.board,
-            totalMoves: moveResult.totalMoves,
-            history: updatedHistory
+            io.to(roomId).emit('game-over', {
+              winner: moveResult.winner,
+              winningSymbol: moveResult.winningSymbol,
+              combo: moveResult.combo,
+              board: moveResult.board,
+              totalMoves: moveResult.totalMoves,
+              history: updatedHistory
+            });
+          })
+          .catch(async (err) => {
+            console.error('Error saving match record:', err);
+            // Even if save fails, still emit game-over to both
+            io.to(roomId).emit('game-over', {
+              winner: moveResult.winner,
+              winningSymbol: moveResult.winningSymbol,
+              combo: moveResult.combo,
+              board: moveResult.board,
+              totalMoves: moveResult.totalMoves,
+              history: []
+            });
           });
-        });
 
       } else {
         io.to(roomId).emit('move-made', {
@@ -127,49 +153,116 @@ function setupSocketIO(io) {
       }
     });
 
-    // Event: reset-game
-    socket.on('reset-game', (data) => {
+    // ── REQUEST NEW GAME (Step 1: Player asks to play again) ─────────────────
+    socket.on('request-new-game', (data) => {
       const roomId = data && data.roomId ? data.roomId : null;
       if (!roomId) return;
 
-      console.log(`🔄 Room [${roomId}] reset requested`);
-      gameState.resetRoom(roomId);
-
       const room = gameState.getRoom(roomId);
+      if (!room) return;
 
-      io.to(roomId).emit('game-reset', {
-        message: 'Game match reset.',
-        board: room ? room.board : Array(9).fill(null)
+      // Only valid after game is over
+      const requesterSymbol = room.players.X && room.players.X.id === socket.id ? 'X'
+        : room.players.O && room.players.O.id === socket.id ? 'O' : null;
+
+      if (!requesterSymbol) return;
+      const requesterName = room.players[requesterSymbol].username;
+
+      // Start fresh vote tracking for this room
+      pendingNewGameVotes.set(roomId, {
+        votes: new Map([[socket.id, true]]), // requester auto-votes YES
+        requester: requesterName
       });
 
-      if (room && room.players.X && room.players.O) {
-        io.to(roomId).emit('game-start', {
-          roomId: room.roomId,
-          playerX: room.players.X.username,
-          playerO: room.players.O.username,
-          currentTurn: room.currentTurn,
-          board: room.board
+      // Tell BOTH players in the room about the request
+      io.to(roomId).emit('new-game-request', {
+        requester: requesterName,
+        requesterSocketId: socket.id,
+        message: `${requesterName} wants to play again!`
+      });
+
+      console.log(`🔁 New game requested by ${requesterName} in Room [${roomId}]`);
+    });
+
+    // ── NEW GAME RESPONSE (Step 2: Other player accepts or declines) ──────────
+    socket.on('new-game-response', (data) => {
+      const { roomId, accepted } = data || {};
+      if (!roomId) return;
+
+      const pending = pendingNewGameVotes.get(roomId);
+      if (!pending) return;
+
+      const room = gameState.getRoom(roomId);
+      if (!room) return;
+
+      // Record this player's vote
+      pending.votes.set(socket.id, accepted);
+
+      const totalPlayers = [room.players.X, room.players.O].filter(Boolean).length;
+      const totalVotes = pending.votes.size;
+
+      // If anyone voted NO → decline immediately
+      if (!accepted) {
+        pendingNewGameVotes.delete(roomId);
+        io.to(roomId).emit('new-game-declined', {
+          message: 'A player chose not to continue. Returning to lobby...'
         });
+        console.log(`❌ New game declined in Room [${roomId}]`);
+        return;
+      }
+
+      // If all players voted YES → start new game
+      if (totalVotes >= totalPlayers) {
+        pendingNewGameVotes.delete(roomId);
+        gameState.resetRoom(roomId);
+        const updatedRoom = gameState.getRoom(roomId);
+
+        io.to(roomId).emit('game-reset', {
+          message: 'New game starting!',
+          board: updatedRoom ? updatedRoom.board : Array(9).fill(null)
+        });
+
+        if (updatedRoom && updatedRoom.players.X && updatedRoom.players.O) {
+          io.to(roomId).emit('game-start', {
+            roomId: updatedRoom.roomId,
+            playerX: updatedRoom.players.X.username,
+            playerO: updatedRoom.players.O.username,
+            currentTurn: updatedRoom.currentTurn,
+            board: updatedRoom.board
+          });
+        }
+
+        console.log(`✅ New game started in Room [${roomId}]`);
+      }
+      // else: still waiting for the other player's response
+    });
+
+    // ── GET HISTORY ───────────────────────────────────────────────────────────
+    socket.on('get-history', async (data) => {
+      const roomId = data && data.roomId ? data.roomId : null;
+      try {
+        const history = await fetchHistoryRecords(roomId);
+        socket.emit('history-data', { history: history || [] });
+      } catch (err) {
+        console.error('Error fetching history:', err);
+        socket.emit('history-data', { history: [] });
       }
     });
 
-    // Event: get-history
-    socket.on('get-history', async (data) => {
-      const roomId = data && data.roomId ? data.roomId : null;
-      const history = await fetchHistoryRecords(roomId);
-      socket.emit('history-data', { history });
-    });
-
-    // Event: disconnect
+    // ── DISCONNECT ────────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
       const res = gameState.leaveSocket(socket.id);
       if (res && res.disconnectedUser) {
         console.log(`👋 Player ${res.disconnectedUser} left Room [${res.roomId}]`);
+
+        // Clean up any pending new-game vote for this room
+        pendingNewGameVotes.delete(res.roomId);
+
         io.to(res.roomId).emit('players-update', gameState.getPlayersSummary(res.roomId));
         io.to(res.roomId).emit('player-disconnected', {
           username: res.disconnectedUser,
           symbol: res.disconnectedSymbol,
-          message: `Player ${res.disconnectedUser} (${res.disconnectedSymbol}) left the room.`
+          message: `${res.disconnectedUser} (${res.disconnectedSymbol}) left the room.`
         });
       }
     });
