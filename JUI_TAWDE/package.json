@@ -1,0 +1,21 @@
+{
+  "name": "real-time-tic-tac-toe-jui-tawde",
+  "version": "1.0.0",
+  "description": "Real-Time Multiplayer Tic Tac Toe Game with Node.js, Express, Socket.io, and MongoDB",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js",
+    "postinstall": "cd backend && npm install"
+  },
+  "keywords": [
+    "tic-tac-toe",
+    "socket.io",
+    "express",
+    "mongodb",
+    "realtime",
+    "game"
+  ],
+  "author": "Jui Tawde",
+  "license": "ISC"
+}

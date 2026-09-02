@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>✦ TIC TAC TOE ✦ — Playful Modern Game</title>
+
+  <!-- Google Fonts: Playfair Display, Poppins, Nunito -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Playfair+Display:ital,wght@0,700;1,700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Canvas Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Ambient Decorative Background Orbs -->
+  <div class="ambient-orb orb-1"></div>
+  <div class="ambient-orb orb-2"></div>
+  <div class="ambient-orb orb-3"></div>
+
+  <!-- Header Navigation Bar -->
+  <header class="app-header">
+    <div class="header-left">
+      <button id="leave-room-btn-nav" class="nav-icon-btn hidden" title="Back to Lobby">
+        <i class="fa-solid fa-arrow-left"></i>
+      </button>
+      <div id="room-code-badge" class="room-code-pill hidden">
+        <span class="pill-label">ROOM:</span>
+        <strong id="display-room-id">ROOM-XXXX</strong>
+        <button id="copy-room-btn" class="icon-btn-sm" title="Copy Room Code">
+          <i class="fa-regular fa-copy"></i>
+        </button>
+      </div>
+    </div>
+    
+    <div class="header-right">
+      <!-- Theme Switcher Toggle Pill -->
+      <button id="theme-toggle-btn" class="theme-toggle-pill" title="Toggle Theme">
+        <span class="toggle-icon sun-icon"><i class="fa-solid fa-sun"></i></span>
+        <span class="toggle-icon moon-icon"><i class="fa-solid fa-moon"></i></span>
+      </button>
+
+      <!-- Connection Status Indicator -->
+      <div id="connection-pill" class="status-pill disconnected">
+        <span class="status-dot"></span>
+        <span id="connection-text">Connecting...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main App Container -->
+  <main class="app-container">
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Lobby / Room Selection Modal -->
+    <div id="lobby-modal" class="modal-backdrop">
+      <div class="mockup-card lobby-card">
+        <div class="card-header">
+          <h1 class="landing-title">✦ TIC TAC TOE ✦</h1>
+          <p class="landing-subtitle">Challenge a friend and win the game!</p>
+          
+          <div class="graphic-illustration">
+            <span class="symbol-graphic x-graphic">X</span>
+            <span class="symbol-graphic o-graphic">O</span>
+          </div>
+        </div>
+
+        <!-- Lobby Action Tabs -->
+        <div class="tab-buttons">
+          <button id="tab-btn-create" class="tab-btn active">
+            <i class="fa-solid fa-plus-circle"></i> Create Room
+          </button>
+          <button id="tab-btn-join" class="tab-btn">
+            <i class="fa-solid fa-right-to-bracket"></i> Join Room
+          </button>
+        </div>
+
+        <!-- Form 1: Create Room -->
+        <form id="create-room-form" class="lobby-form active-tab-content">
+          <div class="input-group">
+            <i class="fa-solid fa-user input-icon"></i>
+            <input type="text" id="create-username-input" placeholder="Your Name (e.g. Player 1)" maxlength="15" autocomplete="off" required>
+          </div>
+
+          <div class="info-note">
+            <i class="fa-solid fa-wand-magic-sparkles text-purple"></i>
+            <span>Creating a room autogenerates a 6-character code for Player 2 to join.</span>
+          </div>
+
+          <button type="submit" class="btn btn-gradient btn-block">
+            <span>START GAME</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </form>
+
+        <!-- Form 2: Join Room -->
+        <form id="join-room-form" class="lobby-form hidden-tab-content">
+          <div class="input-group">
+            <i class="fa-solid fa-user input-icon"></i>
+            <input type="text" id="join-username-input" placeholder="Your Name (e.g. Player 2)" maxlength="15" autocomplete="off" required>
+          </div>
+
+          <div class="input-group">
+            <i class="fa-solid fa-key input-icon"></i>
+            <input type="text" id="join-roomid-input" placeholder="Enter Room Code (e.g. ROOM-7A9B)" maxlength="12" autocomplete="off" required style="text-transform: uppercase;">
+          </div>
+
+          <button type="submit" class="btn btn-gradient btn-block">
+            <span>JOIN ROOM</span>
+            <i class="fa-solid fa-gamepad"></i>
+          </button>
+        </form>
+
+        <div class="modal-footer-note">
+          <span>Have fun! ✦</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Waiting for Opponent Modal -->
+    <div id="waiting-modal" class="modal-backdrop hidden">
+      <div class="mockup-card waiting-card">
+        <div class="pulse-ring">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+        </div>
+        <h2>Waiting for Player 2</h2>
+        <p>Share this Room Code with your opponent to start:</p>
+
+        <div class="room-share-box">
+          <span id="share-room-code" class="share-code">ROOM-XXXX</span>
+          <button id="share-copy-btn" class="btn btn-sm btn-outline">
+            <i class="fa-regular fa-copy"></i> Copy Code
+          </button>
+        </div>
+
+        <div class="waiting-details">
+          <div class="tag-badge tag-x"><i class="fa-solid fa-user-check"></i> You: Player 1 (X)</div>
+          <div class="tag-badge tag-o"><i class="fa-solid fa-user-clock"></i> Player 2 (O) Joining...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Game Arena Screen -->
+    <section class="game-arena">
+
+      <!-- Turn Status Pill -->
+      <div id="turn-pill" class="turn-pill">
+        <span id="turn-pill-text">✦ PLAYER 1'S TURN ✦</span>
+      </div>
+
+      <!-- Scoreboard Row Cards -->
+      <div class="scoreboard-row">
+        <!-- Player 1 Card (X - Pink) -->
+        <div id="card-player-x" class="score-card card-x active">
+          <div class="score-symbol symbol-x">X</div>
+          <div class="score-info">
+            <span class="player-tag-name">PLAYER 1</span>
+            <h3 id="name-player-x" class="player-username">Waiting...</h3>
+          </div>
+          <div id="score-player-x" class="score-number">0</div>
+        </div>
+
+        <!-- Player 2 Card (O - Blue) -->
+        <div id="card-player-o" class="score-card card-o">
+          <div class="score-symbol symbol-o">O</div>
+          <div class="score-info">
+            <span class="player-tag-name">PLAYER 2</span>
+            <h3 id="name-player-o" class="player-username">Waiting...</h3>
+          </div>
+          <div id="score-player-o" class="score-number">0</div>
+        </div>
+      </div>
+
+      <!-- Tic Tac Toe Game Board Card -->
+      <div class="board-card">
+        <div id="board" class="board disabled">
+          <div class="cell" data-index="0"></div>
+          <div class="cell" data-index="1"></div>
+          <div class="cell" data-index="2"></div>
+          <div class="cell" data-index="3"></div>
+          <div class="cell" data-index="4"></div>
+          <div class="cell" data-index="5"></div>
+          <div class="cell" data-index="6"></div>
+          <div class="cell" data-index="7"></div>
+          <div class="cell" data-index="8"></div>
+        </div>
+        <!-- Winning Strike Line Canvas Overlay -->
+        <canvas id="winning-line-canvas" class="winning-line-canvas"></canvas>
+      </div>
+
+      <!-- Bottom Move Status -->
+      <div class="board-footer">
+        <span id="footer-move-text" class="footer-move-text">✦ Make your move! ✦</span>
+      </div>
+
+      <!-- Action Buttons Bar -->
+      <div class="game-actions">
+        <button id="reset-btn" class="btn btn-gradient btn-round">
+          <i class="fa-solid fa-rotate-right"></i> NEW GAME
+        </button>
+
+        <button id="reset-score-btn" class="icon-circle-btn" title="Reset Scores">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+
+        <button id="view-history-btn" class="btn btn-outline">
+          MATCH HISTORY
+        </button>
+      </div>
+
+      <div class="arena-footer-note">
+        <span>Have fun! ✦</span>
+      </div>
+
+    </section>
+
+    <!-- Winner / Victory Modal -->
+    <div id="winner-modal" class="modal-backdrop hidden">
+      <div class="mockup-card winner-card">
+        <div id="winner-banner-pill" class="winner-banner-pill">
+          🎉 PLAYER 1 WINS!
+        </div>
+        
+        <h2 id="winner-title" class="winner-title">Great game! 🎉</h2>
+        <p id="winner-subtitle" class="winner-subtitle">Awesome match!</p>
+
+        <div class="match-summary">
+          <div class="summary-item">
+            <span class="label">Total Moves:</span>
+            <span id="summary-moves" class="value">0</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">Winning Symbol:</span>
+            <span id="summary-symbol" class="value text-x">X</span>
+          </div>
+        </div>
+
+        <button id="play-again-btn" class="btn btn-gradient btn-block">
+          <i class="fa-solid fa-rotate-right"></i> NEW GAME
+        </button>
+      </div>
+    </div>
+
+    <!-- Match History Modal -->
+    <div id="history-modal" class="modal-backdrop hidden">
+      <div class="mockup-card history-card">
+        <div class="history-header">
+          <div>
+            <h3>Saved Match History</h3>
+            <p class="history-sub">Stored in MongoDB per Room Code</p>
+          </div>
+          <button id="close-history-btn" class="close-btn">&times;</button>
+        </div>
+
+        <div class="history-body">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Room</th>
+                <th>Player X</th>
+                <th>Player O</th>
+                <th>Winner</th>
+                <th>Moves</th>
+                <th>Played At</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body">
+              <tr>
+                <td colspan="7" class="text-center">Loading match records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <p>✦ TIC TAC TOE ✦ — Playful Modern Game</p>
+  </footer>
+
+  <!-- Socket.io Client Script (with CDN fallback) -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    if (typeof io === 'undefined') {
+      document.write('<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"><\/script>');
+    }
+  </script>
+
+  <!-- Client Application Script -->
+  <script src="script.js"></script>
+</body>
+</html>
