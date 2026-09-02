@@ -446,6 +446,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Background push after DB save completes (non-blocking)
+  socket.on('history-update', (data) => {
+    if (data && Array.isArray(data.history)) {
+      renderHistoryCards(data.history);
+    }
+  });
+
   function renderHistoryCards(records) {
     if (!historyBody) return;
     if (!records || records.length === 0) {

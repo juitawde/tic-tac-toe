@@ -101,46 +101,30 @@ function setupSocketIO(io) {
       const pO = room && room.players.O ? room.players.O.username : 'Player O';
 
       if (moveResult.gameOver) {
-        // First broadcast board update so everyone sees the final move
+        // ── Broadcast final board immediately ─────────────────────────────────
         io.to(roomId).emit('move-made', {
-          index,
-          symbol,
-          board: moveResult.board,
-          nextTurn: null
+          index, symbol, board: moveResult.board, nextTurn: null
         });
 
-        // Save and broadcast game-over to BOTH players
-        saveMatchRecord(
-          roomId,
-          pX,
-          pO,
-          moveResult.winner,
-          moveResult.winningSymbol,
-          moveResult.totalMoves
-        )
+        // ── Show winner modal on BOTH screens RIGHT NOW — don't wait for DB ──
+        io.to(roomId).emit('game-over', {
+          winner:        moveResult.winner,
+          winningSymbol: moveResult.winningSymbol,
+          combo:         moveResult.combo,
+          board:         moveResult.board,
+          totalMoves:    moveResult.totalMoves,
+          history:       []   // history will be pushed separately once DB saves
+        });
+
+        // ── Save to DB in background (non-blocking) ────────────────────────
+        saveMatchRecord(roomId, pX, pO, moveResult.winner, moveResult.winningSymbol, moveResult.totalMoves)
           .then(async () => {
             const updatedHistory = await fetchHistoryRecords(roomId);
-
-            io.to(roomId).emit('game-over', {
-              winner: moveResult.winner,
-              winningSymbol: moveResult.winningSymbol,
-              combo: moveResult.combo,
-              board: moveResult.board,
-              totalMoves: moveResult.totalMoves,
-              history: updatedHistory
-            });
+            // Push updated history to both screens after save completes
+            io.to(roomId).emit('history-update', { history: updatedHistory });
           })
-          .catch(async (err) => {
-            console.error('Error saving match record:', err);
-            // Even if save fails, still emit game-over to both
-            io.to(roomId).emit('game-over', {
-              winner: moveResult.winner,
-              winningSymbol: moveResult.winningSymbol,
-              combo: moveResult.combo,
-              board: moveResult.board,
-              totalMoves: moveResult.totalMoves,
-              history: []
-            });
+          .catch((err) => {
+            console.error('Background DB save error (non-fatal):', err.message);
           });
 
       } else {
